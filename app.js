@@ -1,5 +1,4 @@
 const express = require('express')
-const socket = require('socket.io')
 const config = require('config')
 const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
@@ -8,59 +7,51 @@ const User = require('./models/User')
 
 const app = express()
 
+const {GraphQLList} = require('graphql')
+const {GraphQLSchema} = require('graphql')
+const {graphqlHTTP} = require('express-graphql')
+const {GraphQLString} = require('graphql')
+const {GraphQLObjectType} = require('graphql')
+
 app.use(express.json({ extended: true }))
 app.use(express.static("."));
 app.use('/create', require('./routes/create'))
 
-const PORT = config.get('port') || 8000
 
-async function start() {
-    try {
-        await mongoose.connect(config.get('url'), {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-            useCreateIndex: true
-        })
+//определение типа ответа от сервера на авторизацию
+const AuthResultType = new GraphQLObjectType({
+    name: "AuthResult",
+    fields: () => ({
+        token: {type: GraphQLString},
+        userId: {type: GraphQLString},
+        message: {type: GraphQLString},
+    })
+})
 
-        const server = app.listen(PORT, () => console.log(`Server started on ${PORT}`))
-        const socketio = socket(server)
-        
-        socketio.on('connection', (socket) => {
-            console.log('User\'s id ' + socket.id)
-
-            socket.on('reg', async(data) => {
-                const { login, password } = data
-                const preUser = await User.findOne({ login })
-
-                //существует ли пользователь с таким логином
-                if (preUser) {
-                    socket.emit('resultauth', { token: null, userId: null, message: 'User is already exists'} )
-                    return
-                }
-
-                //шифрование пароля
-                const hashPassword = await bcrypt.hash(password, 12)
-                const newUser = new User({ login, password: hashPassword })
-
-                await newUser.save()
-                socket.emit('resultauth', { token: null, userId: null, message: 'User is created' })
-            })
-
-            socket.on('login', async(data) =>{
-                const { login, password } = data
+//получение данных с сервера
+const RootQuery = new GraphQLObjectType({
+    name: "RootQueryType",
+    fields: {
+        login: {
+            type: AuthResultType,
+            args: {
+                login: { type: GraphQLString },
+                password: { type: GraphQLString }
+            },
+            async resolve(parent, args) {
+                const login = args.login
+                const password = args.password
                 const newUser = await User.findOne({ login })
 
                 //существует ли пользователь с таким логином
                 if (!newUser) {
-                    socket.emit('resultauth', {token: null, userId: null, message: 'User not found'})
-                    return
+                    return {token: null, userId: null, message: 'User not found'}
                 }
 
                 //проверка совпадения пароля из базы и введенного
                 const isMatch = await bcrypt.compare(password, newUser.password)
                 if (!isMatch) {
-                    socket.emit('resultauth', {token: null, userId: null, message: 'Incorrect password'})
-                    return
+                    return {token: null, userId: null, message: 'Incorrect password'}
                 }
             
                 const userId = newUser.id
@@ -73,13 +64,62 @@ async function start() {
                     //через сколько токен закончит существование
                     { expiresIn: '1h' }
                 )
-                socket.emit('resultauth', {token, userId, message: null})
-            })
+                return {token, userId, message: null}
+            }
+        }
+    }
+})
 
-            socket.on('disconnect', () => {
-                console.log('User\'s disconnected')
-            })
+//изменение данных на сервере
+const Mutation = new GraphQLObjectType({
+    name: "Mutation",
+    fields: {
+        reg: {
+            type: AuthResultType,
+            args: {
+                login: { type: GraphQLString },
+                password: { type: GraphQLString }
+            },
+            async resolve(parent, args) {
+                const login = args.login
+                const password = args.password
+                const preUser = await User.findOne({ login })
+
+                //существует ли пользователь с таким логином
+                if (preUser) {
+                    return { token: null, userId: null, message: 'User is already exists'}
+                }
+
+                //шифрование пароля
+                const hashPassword = await bcrypt.hash(password, 12)
+                const newUser = new User({ login, password: hashPassword })
+
+                await newUser.save()
+                return { token: null, userId: null, message: 'User is created' }
+            }
+        }
+    }
+})
+
+const schema = new GraphQLSchema({ query: RootQuery, mutation: Mutation })
+
+app.use('/graphql', graphqlHTTP({
+    schema,
+    graphiql: false //тестить запросы
+}))
+
+
+const PORT = config.get('port') || 8000
+
+async function start() {
+    try {
+        await mongoose.connect(config.get('url'), {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+            useCreateIndex: true
         })
+
+        app.listen(PORT, () => console.log(`Server started on ${PORT}`))
 
     } catch (err) {
         console.log('Server error', err.message)
