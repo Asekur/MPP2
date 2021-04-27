@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import {Socket} from "socket.io-client";
 
 function noop() { }
 
@@ -7,5 +8,6 @@ export const ContextAuth = createContext({
     userId: null,
     signin: noop,
     signout: noop,
-    isAuthorize: false
+    isAuthorize: false,
+    socket: Socket
 })

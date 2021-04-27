@@ -1,21 +1,12 @@
 import React, { useContext, useEffect, useState } from 'react'
-import { useHttp } from '../hooks/hookHTTP'
-import { useMessage } from '../hooks/hookMsg'
 import { ContextAuth } from '../context/ContextAuth'
 
 export const Authorize = () => {
     const authorize = useContext(ContextAuth)
-    const message = useMessage()
-    const { loading, error, request, clearError } = useHttp()
+
     const [form, setForm] = useState({
         login: '', password: ''
     })
-
-    //отслеживание ошибки
-    useEffect(() => {
-        message(error)
-        clearError()
-    }, [error, message, clearError])
 
     //активные поля
     useEffect(() => {
@@ -30,15 +21,13 @@ export const Authorize = () => {
 
     const registerHandler = async () => {
         try {
-            const data = await request('/auth/reg', 'POST', { ...form })
-            message(data.message)
+            authorize.socket.emit('reg', {...form})
         } catch (err) { }
     }
 
     const loginHandler = async () => {
         try {
-            const data = await request('/auth/login', 'POST', { ...form })
-            authorize.signin(data.token, data.userId)
+            authorize.socket.emit('login', {...form})
         } catch (err) { }
     }
 
@@ -85,13 +74,11 @@ export const Authorize = () => {
                             <button
                                 className="btn deep-orange accent-2"
                                 style={{ marginRight: 10 }}
-                                disabled={loading}
                                 onClick={loginHandler}
                             >Sign In</button>
                             <button
                                 className="btn grey darken-4"
                                 onClick={registerHandler}
-                                disabled={loading}
                             >Sign up</button>
                         </div>
                     </div>
